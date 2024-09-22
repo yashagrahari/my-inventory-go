@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
@@ -16,7 +17,7 @@ type App struct {
 	Db     *sql.DB
 }
 
-func (app *App) Initailize() error {
+func (app *App) Initailize(Dbuser string, DbPassword string, DbName string) error {
 	connextionString := fmt.Sprintf("%v:%v@tcp(127.0.0.1:3306)/%v", DbUser, DbPassword, DbName)
 	var err error
 	app.Db, err = sql.Open("mysql", connextionString)
@@ -53,9 +54,94 @@ func (app *App) getProducts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendResponse(w, http.StatusOK, products)
+}
+
+func (app *App) getProduct(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	key, err := strconv.Atoi(vars["id"])
+	log.Println("Looking for Product with id", key)
+	if err != nil {
+		sendError(w, http.StatusBadRequest, "Invalid Product Id")
+		return
+	}
+
+	p := product{ID: key}
+	err = p.getProduct(app.Db)
+	if err != nil {
+		switch err {
+		case sql.ErrNoRows:
+			sendError(w, http.StatusNotFound, "Product not found")
+		default:
+			sendError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	sendResponse(w, http.StatusOK, p)
+
+}
+
+func (app *App) createProduct(w http.ResponseWriter, r *http.Request) {
+	var p product
+	err := json.NewDecoder(r.Body).Decode(&p)
+	if err != nil {
+		sendError(w, http.StatusBadRequest, "Invalid payload")
+	}
+
+	err = p.createProduct(app.Db)
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, err.Error())
+	}
+	sendResponse(w, http.StatusCreated, p)
+}
+
+func (app *App) updateProduct(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	key, err := strconv.Atoi(vars["id"])
+	log.Println("Looking for Product with id", key)
+	if err != nil {
+		sendError(w, http.StatusBadRequest, "Invalid Product Id")
+		return
+	}
+
+	var p product
+	err = json.NewDecoder(r.Body).Decode(&p)
+	if err != nil {
+		sendError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+	p.ID = key
+	err = p.updateProduct(app.Db)
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	sendResponse(w, http.StatusOK, p)
+
+}
+
+func (app *App) deleteProduct(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	key, err := strconv.Atoi(vars["id"])
+	log.Println("Looking for Product with id", key)
+	if err != nil {
+		sendError(w, http.StatusBadRequest, "Invalid Product Id")
+		return
+	}
+
+	p := product{ID: key}
+	err = p.deleteProduct(app.Db)
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	sendResponse(w, http.StatusOK, map[string]string{"result": "Product Deleted Successfully"})
 
 }
 
 func (app *App) handleRoutes() {
 	app.Router.HandleFunc("/products", app.getProducts).Methods("GET")
+	app.Router.HandleFunc("/product/{id}", app.getProduct).Methods("GET")
+	app.Router.HandleFunc("/product", app.createProduct).Methods("POST")
+	app.Router.HandleFunc("/product/{id}", app.updateProduct).Methods("PUT")
+	app.Router.HandleFunc("/product/{id}", app.deleteProduct).Methods("DELETE")
 }
